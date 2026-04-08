@@ -1,0 +1,44 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and credit information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "user"] },
+        "credits": { "type": "number", "description": "Number of scraping credits available" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role", "credits"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Payment request for credits",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "amount": { "type": "number" },
+        "credits": { "type": "number" },
+        "method": { "type": "string", "enum": ["bkash", "nagad", "gumroad"] },
+        "transactionId": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "amount", "credits", "method", "transactionId", "status", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/payments/{paymentId}": {
+      "schema": "Payment",
+      "description": "Payment requests for admin approval"
+    }
+  }
+}
