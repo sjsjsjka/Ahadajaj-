@@ -36,17 +36,10 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  auth, 
   db, 
-  signIn, 
-  signOut, 
   UserProfile, 
   PaymentRequest 
 } from './firebase';
-import { 
-  onAuthStateChanged, 
-  User as FirebaseUser 
-} from 'firebase/auth';
 import { 
   doc, 
   onSnapshot, 
@@ -77,8 +70,6 @@ interface IntelResult {
 type View = 'scan' | 'pricing' | 'admin' | 'history';
 
 export default function App() {
-  const [user, setUser] = useState<FirebaseUser | null>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [currentView, setCurrentView] = useState<View>('scan');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   
@@ -103,32 +94,8 @@ export default function App() {
   // Admin States
   const [pendingPayments, setPendingPayments] = useState<PaymentRequest[]>([]);
 
-  // Auth Listener
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      if (!u) {
-        setProfile(null);
-        setCurrentView('scan');
-      }
-    });
-    return unsubscribe;
-  }, []);
-
-  // Profile Listener
-  useEffect(() => {
-    if (!user) return;
-    const unsubscribe = onSnapshot(doc(db, 'users', user.uid), (doc) => {
-      if (doc.exists()) {
-        setProfile(doc.data() as UserProfile);
-      }
-    });
-    return unsubscribe;
-  }, [user]);
-
   // Admin: Pending Payments Listener
   useEffect(() => {
-    if (profile?.role !== 'admin') return;
     const q = query(
       collection(db, 'payments'),
       where('status', '==', 'pending'),
@@ -139,15 +106,7 @@ export default function App() {
       setPendingPayments(payments);
     });
     return unsubscribe;
-  }, [profile]);
-
-  const handleSignIn = async () => {
-    try {
-      await signIn();
-    } catch (err) {
-      setError("Authentication failed. Please try again.");
-    }
-  };
+  }, []);
 
   const exportToCSV = () => {
     if (results.length === 0) return;
@@ -177,19 +136,9 @@ export default function App() {
   const extractIntel = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!command.trim()) return;
-    if (!profile) {
-      setError("Please sign in to execute scans.");
-      return;
-    }
 
     const countMatch = command.match(/(\d+)/);
     const totalRequested = countMatch ? Math.min(parseInt(countMatch[1]), 500) : 50;
-
-    if (profile.credits < totalRequested && profile.role !== 'admin') {
-      setError(`Insufficient credits. You need ${totalRequested} credits but have ${profile.credits}.`);
-      setCurrentView('pricing');
-      return;
-    }
 
     setLoading(true);
     setError(null);
@@ -256,14 +205,7 @@ export default function App() {
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
       
-      if (currentResults.length > 0) {
-        // Deduct credits
-        if (profile.role !== 'admin') {
-          await updateDoc(doc(db, 'users', user!.uid), {
-            credits: increment(-currentResults.length)
-          });
-        }
-      } else {
+      if (currentResults.length === 0) {
         throw new Error("Matrix connection lost. No data returned.");
       }
     } catch (err: any) {
@@ -276,13 +218,12 @@ export default function App() {
 
   const handlePaymentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !transactionId.trim()) return;
+    if (!transactionId.trim()) return;
 
     setPaymentLoading(true);
     try {
       await addDoc(collection(db, 'payments'), {
-        uid: user.uid,
-        email: user.email,
+        email: 'anonymous@nexus.intel',
         amount: targetCount * sellingPrice,
         credits: targetCount,
         method: paymentMethod,
@@ -359,23 +300,7 @@ export default function App() {
           <div className="hidden md:flex items-center gap-6">
             <button onClick={() => setCurrentView('scan')} className={`text-xs font-bold tracking-widest uppercase transition-colors ${currentView === 'scan' ? 'text-[#00ff9d]' : 'text-[#00ff9d]/40 hover:text-[#00ff9d]'}`}>Scan</button>
             <button onClick={() => setCurrentView('pricing')} className={`text-xs font-bold tracking-widest uppercase transition-colors ${currentView === 'pricing' ? 'text-[#00ff9d]' : 'text-[#00ff9d]/40 hover:text-[#00ff9d]'}`}>Pricing</button>
-            {profile?.role === 'admin' && (
-              <button onClick={() => setCurrentView('admin')} className={`text-xs font-bold tracking-widest uppercase transition-colors ${currentView === 'admin' ? 'text-[#00ff9d]' : 'text-[#00ff9d]/40 hover:text-[#00ff9d]'}`}>Admin</button>
-            )}
-            
-            {user ? (
-              <div className="flex items-center gap-4 pl-6 border-l border-[#00ff9d]/20">
-                <div className="flex flex-col items-end">
-                  <span className="text-[10px] text-[#00ff9d]/40 uppercase">Credits</span>
-                  <span className="text-sm font-black">{profile?.credits || 0}</span>
-                </div>
-                <button onClick={() => signOut()} className="p-2 hover:bg-red-500/10 rounded-full text-red-500 transition-colors">
-                  <LogOut className="w-4 h-4" />
-                </button>
-              </div>
-            ) : (
-              <button onClick={handleSignIn} className="bg-[#00ff9d] text-black px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest hover:scale-105 transition-transform">Sign In</button>
-            )}
+            <button onClick={() => setCurrentView('admin')} className={`text-xs font-bold tracking-widest uppercase transition-colors ${currentView === 'admin' ? 'text-[#00ff9d]' : 'text-[#00ff9d]/40 hover:text-[#00ff9d]'}`}>Admin</button>
           </div>
 
           {/* Mobile Menu Toggle */}
@@ -396,22 +321,7 @@ export default function App() {
               <div className="p-6 flex flex-col gap-6">
                 <button onClick={() => { setCurrentView('scan'); setIsMenuOpen(false); }} className="text-left text-lg font-bold">Scan</button>
                 <button onClick={() => { setCurrentView('pricing'); setIsMenuOpen(false); }} className="text-left text-lg font-bold">Pricing</button>
-                {profile?.role === 'admin' && (
-                  <button onClick={() => { setCurrentView('admin'); setIsMenuOpen(false); }} className="text-left text-lg font-bold">Admin</button>
-                )}
-                {user ? (
-                  <div className="flex items-center justify-between pt-6 border-t border-[#00ff9d]/10">
-                    <div className="flex flex-col">
-                      <span className="text-xs text-[#00ff9d]/40">Credits</span>
-                      <span className="text-xl font-black">{profile?.credits || 0}</span>
-                    </div>
-                    <button onClick={() => signOut()} className="flex items-center gap-2 text-red-500 font-bold">
-                      <LogOut className="w-5 h-5" /> Sign Out
-                    </button>
-                  </div>
-                ) : (
-                  <button onClick={handleSignIn} className="bg-[#00ff9d] text-black w-full py-3 rounded-xl font-black uppercase">Sign In</button>
-                )}
+                <button onClick={() => { setCurrentView('admin'); setIsMenuOpen(false); }} className="text-left text-lg font-bold">Admin</button>
               </div>
             </motion.div>
           )}
@@ -713,13 +623,12 @@ export default function App() {
 
                     <button
                       type="submit"
-                      disabled={paymentLoading || !user}
+                      disabled={paymentLoading}
                       className="w-full bg-[#00ff9d] text-black py-4 rounded-xl font-black uppercase tracking-widest hover:scale-[1.02] transition-transform disabled:opacity-50 flex items-center justify-center gap-3"
                     >
                       {paymentLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Zap className="w-5 h-5 fill-current" />}
                       <span>Submit for Approval</span>
                     </button>
-                    {!user && <p className="text-[10px] text-center text-red-500 uppercase font-bold">Sign in required to purchase credits</p>}
                     
                     {paymentSuccess && (
                       <motion.div 
@@ -738,7 +647,7 @@ export default function App() {
           </div>
         )}
 
-        {currentView === 'admin' && profile?.role === 'admin' && (
+        {currentView === 'admin' && (
           <div className="max-w-6xl mx-auto">
             <div className="flex items-center justify-between mb-12">
               <h2 className="text-5xl font-black uppercase tracking-tighter italic">Admin <span className="text-white">Panel</span></h2>
